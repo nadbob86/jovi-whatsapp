@@ -1,0 +1,15 @@
+{
+  "name": "jovi-whatsapp",
+  "version": "1.0.0",
+  "description": "Jovi - AI Job Search Bot for WhatsApp",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "twilio": "^5.3.0",
+    "@anthropic-ai/sdk": "^0.30.0"
+  }
+}
