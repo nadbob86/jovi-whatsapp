@@ -7,186 +7,203 @@ app.use(express.json());
 
 const sessions = {};
 
-// ── GROQ AI ────────────────────────────────────────────
-async function askGroq(messages) {
-          try {
-                      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-                                    body: JSON.stringify({ model: "llama-3.3-70b-versatile", max_tokens: 600, temperature: 0.4, messages }),
-                      });
-                      const data = await res.json();
-                      return data.choices?.[0]?.message?.content || "שגיאה זמנית.";
-          } catch (e) {
-                      console.error("Groq error:", e.message);
-                      return "שגיאה זמנית.";
-          }
+// ── GROQ AI ──────────────────────────────────────────────
+async function askGroq(systemPrompt, userMsg) {
+            try {
+                          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+                                          body: JSON.stringify({
+                                                            model: "llama-3.3-70b-versatile",
+                                                            max_tokens: 500,
+                                                            temperature: 0.3,
+                                                            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userMsg }],
+                                          }),
+                          });
+                          const data = await res.json();
+                          return data.choices?.[0]?.message?.content?.trim() || "";
+            } catch (e) {
+                          console.error("Groq error:", e.message);
+                          return "";
+            }
 }
 
-// ── SOURCE 1: Arbeitnow (FREE, no key, tech jobs worldwide) ──
+// ── SOURCE 1: Arbeitnow API (free, global tech jobs) ─────
 async function searchArbeitnow(role) {
-          try {
-                      const q = encodeURIComponent(role);
-                      const url = `https://arbeitnow.com/api/job-board-api?search=${q}`;
-                      const res = await fetch(url, { headers: { "Accept": "application/json" } });
-                      const data = await res.json();
-                      return (data.data || []).slice(0, 3).map(j => ({
-                                    title: j.title,
-                                    company: j.company_name,
-                                    location: j.location,
-                                    url: j.url,
-                                    source: "Arbeitnow",
-                                    remote: j.remote,
-                      }));
-          } catch (e) {
-                      console.error("Arbeitnow error:", e.message);
-                      return [];
-          }
+            try {
+                          const url = `https://arbeitnow.com/api/job-board-api?search=${encodeURIComponent(role)}&page=1`;
+                          const res = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+                          const data = await res.json();
+                          return (data.data || []).slice(0, 4).map(j => ({
+                                          title: j.title, company: j.company_name,
+                                          location: j.location || "Remote",
+                                          url: j.url, source: "Arbeitnow", remote: j.remote,
+                          }));
+            } catch (e) { console.error("Arbeitnow:", e.message); return []; }
 }
 
-// ── SOURCE 2: RemoteOK (FREE, no key, remote tech jobs) ──
+// ── SOURCE 2: RemoteOK API (free, remote tech jobs) ──────
 async function searchRemoteOK(role) {
-          try {
-                      const tag = role.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
-                      const url = `https://remoteok.com/api?tag=${tag}`;
-                      const res = await fetch(url, { headers: { "User-Agent": "JobBot/1.0" } });
-                      const data = await res.json();
-                      const jobs = Array.isArray(data) ? data.filter(j => j.position).slice(0, 3) : [];
-                      return jobs.map(j => ({
-                                    title: j.position,
-                                    company: j.company,
-                                    location: "Remote",
-                                    url: `https://remoteok.com/remote-jobs/${j.id}`,
-                                    source: "RemoteOK",
-                                    remote: true,
-                      }));
-          } catch (e) {
-                      console.error("RemoteOK error:", e.message);
-                      return [];
-          }
+            try {
+                          const tag = role.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 30);
+                          const res = await fetch(`https://remoteok.com/api?tag=${tag}`, {
+                                          headers: { "User-Agent": "JobSearchBot/1.0" }, signal: AbortSignal.timeout(8000),
+                          });
+                          const data = await res.json();
+                          return (Array.isArray(data) ? data : []).filter(j => j.position && j.company).slice(0, 3).map(j => ({
+                                          title: j.position, company: j.company,
+                                          location: "🌐 Remote",
+                                          url: j.url || `https://remoteok.com/remote-jobs/${j.id}`,
+                                          source: "RemoteOK", remote: true,
+                          }));
+            } catch (e) { console.error("RemoteOK:", e.message); return []; }
 }
 
-// ── SOURCE 3: Adzuna (UK/US/DE/FR/CA/AU) ──────────────────
-async function searchAdzuna(role, countryCode) {
-          try {
-                      const appId = process.env.ADZUNA_APP_ID;
-                      const appKey = process.env.ADZUNA_APP_KEY;
-                      const q = encodeURIComponent(role);
-                      const url = `https://api.adzuna.com/v1/api/jobs/${countryCode}/search/1?app_id=${appId}&app_key=${appKey}&results_per_page=4&what=${q}&content-type=application/json`;
-                      const res = await fetch(url);
-                      const data = await res.json();
-                      return (data.results || []).map(j => ({
-                                    title: j.title,
-                                    company: j.company?.display_name || "חברה",
-                                    location: j.location?.display_name || countryCode.toUpperCase(),
-                                    url: j.redirect_url,
-                                    salary: j.salary_min ? `${Math.round(j.salary_min / 12).toLocaleString()}₪/חודש` : null,
-                                    source: "Adzuna",
-                                    remote: false,
-                      }));
-          } catch (e) {
-                      console.error("Adzuna error:", e.message);
-                      return [];
-          }
+// ── SOURCE 3: Adzuna API (global - gb/us/de/fr/ca/au) ────
+async function searchAdzuna(role, country) {
+            try {
+                          const url = `https://api.adzuna.com/v1/api/jobs/${country}/search/1?app_id=${process.env.ADZUNA_APP_ID}&app_key=${process.env.ADZUNA_APP_KEY}&results_per_page=4&what=${encodeURIComponent(role)}&content-type=application/json`;
+                          const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+                          const data = await res.json();
+                          return (data.results || []).map(j => ({
+                                          title: j.title, company: j.company?.display_name || "חברה",
+                                          location: j.location?.display_name || country.toUpperCase(),
+                                          url: j.redirect_url,
+                                          salary: j.salary_min ? `${Math.round(j.salary_min / 12).toLocaleString()}` : null,
+                                          source: "Adzuna", remote: false,
+                          }));
+            } catch (e) { console.error("Adzuna:", e.message); return []; }
 }
 
-// ── MASTER SEARCH: runs all sources in parallel ──────────
-async function searchAllSources(role, location) {
-          const loc = (location || "").toLowerCase();
+// ── GENERATE SEARCH LINKS (works for EVERY country) ──────
+function buildSearchLinks(role, location) {
+            const r = encodeURIComponent(role);
+            const l = encodeURIComponent(location);
+            const isIsrael = /israel|ישראל|תל.?אביב|tel.?aviv|jerusalem|ירושלים|haifa|חיפה/i.test(location);
+
+  const links = [];
+
+  if (isIsrael) {
+                links.push(`🇮🇱 AllJobs: https://www.alljobs.co.il/SearchResultsPage.aspx?position=${r}`);
+                links.push(`🇮🇱 Drushim: https://www.drushim.co.il/jobs/alljobs/?q=${r}`);
+                links.push(`🔵 LinkedIn IL: https://www.linkedin.com/jobs/search/?keywords=${r}&location=Israel`);
+  } else {
+                links.push(`🔵 LinkedIn: https://www.linkedin.com/jobs/search/?keywords=${r}&location=${l}`);
+                links.push(`🟡 Indeed: https://www.indeed.com/jobs?q=${r}&l=${l}`);
+                links.push(`🟢 Glassdoor: https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${r}&locT=C&locName=${l}`);
+  }
+            links.push(`🌐 Google Jobs: https://www.google.com/search?q=${r}+jobs+${l}&ibp=htl;jobs`);
+            return links;
+}
+
+// ── MASTER SEARCH ─────────────────────────────────────────
+async function searchJobs(role, location) {
+            const loc = location.toLowerCase();
+            const isIsrael = /israel|ישראל|תל.?אביב|tel.?aviv|jerusalem|ירושלים|haifa|חיפה/i.test(loc);
+            const isRemote = /remote|מרחוק/i.test(loc);
 
   let adzunaCountry = "gb";
-          if (loc.includes("us") || loc.includes("new york") || loc.includes("san francisco") || loc.includes("ארצות הברית")) adzunaCountry = "us";
-          else if (loc.includes("germany") || loc.includes("berlin") || loc.includes("גרמניה")) adzunaCountry = "de";
-          else if (loc.includes("france") || loc.includes("paris") || loc.includes("צרפת")) adzunaCountry = "fr";
-          else if (loc.includes("canada") || loc.includes("toronto") || loc.includes("קנדה")) adzunaCountry = "ca";
-          else if (loc.includes("australia") || loc.includes("sydney") || loc.includes("אוסטרליה")) adzunaCountry = "au";
+            if (/\b(us|usa|new york|san francisco|chicago|seattle|boston)\b/i.test(loc)) adzunaCountry = "us";
+            else if (/germany|berlin|munich|גרמניה/i.test(loc)) adzunaCountry = "de";
+            else if (/france|paris|צרפת/i.test(loc)) adzunaCountry = "fr";
+            else if (/canada|toronto|קנדה/i.test(loc)) adzunaCountry = "ca";
+            else if (/australia|sydney|אוסטרליה/i.test(loc)) adzunaCountry = "au";
 
-  const isRemoteSearch = loc.includes("remote") || loc.includes("מרחוק") || loc.includes("ריי");
-          const isIsrael = loc.includes("israel") || loc.includes("ישראל") || loc.includes("תל אביב") || loc.includes("tel aviv");
+  console.log(`[SEARCH] role="${role}" location="${location}" country=${adzunaCountry} israel=${isIsrael} remote=${isRemote}`);
 
-  console.log(`Searching: role="${role}" location="${location}" country="${adzunaCountry}" israel=${isIsrael}`);
+  const [arbeit, remote, adzuna] = await Promise.allSettled([
+                searchArbeitnow(role),
+                (isIsrael || isRemote) ? searchRemoteOK(role) : Promise.resolve([]),
+                !isRemote ? searchAdzuna(role, adzunaCountry) : Promise.resolve([]),
+              ]);
 
-  const [arbeit, remote, adzuna] = await Promise.all([
-              searchArbeitnow(role),
-              isRemoteSearch || isIsrael ? searchRemoteOK(role) : Promise.resolve([]),
-              isRemoteSearch ? Promise.resolve([]) : searchAdzuna(role, adzunaCountry),
-            ]);
+  const jobs = [
+                ...(arbeit.value || []),
+                ...(remote.value || []),
+                ...(adzuna.value || []),
+              ];
 
-  const all = [...arbeit, ...remote, ...adzuna];
-          console.log(`Results: arbeit=${arbeit.length} remote=${remote.length} adzuna=${adzuna.length} total=${all.length}`);
-          return all;
+  console.log(`[RESULT] jobs found: ${jobs.length}`);
+            return { jobs, links: buildSearchLinks(role, location) };
 }
 
 // ── CONVERSATION ───────────────────────────────────────────
-async function handleMessage(userId, userMsg) {
-          if (!sessions[userId]) sessions[userId] = { step: 0 };
-          const s = sessions[userId];
-          const msg = userMsg.trim();
+async function handleMessage(userId, rawMsg) {
+            if (!sessions[userId]) sessions[userId] = { step: 0 };
+            const s = sessions[userId];
+            const msg = rawMsg.trim();
+
+  // Reset command
+  if (/חיפוש חדש|חדש|שוב|restart|reset/i.test(msg) && s.step > 1) {
+                s.step = 1;
+                return "בשמחה! 😊\n\n*מה התפקיד שאתה מחפש?*";
+  }
 
   if (s.step === 0) {
-              s.step = 1;
-              return "שלום! אני ג'ובי 👋 בוט חיפוש עבודה חכם.\n\n*מה התפקיד שאתה מחפש?*\n(לדוגמה: מפתח, UX designer, data analyst, product manager...)";
+                s.step = 1;
+                return "שלום! אני *ג'ובי* 👋 — בוט חיפוש עבודה חכם.\n\nאני מחפש משרות בישראל ובכל העולם!\n\n*מה התפקיד שאתה מחפש?*\n(לדוגמה: developer, designer, data analyst, product manager)";
   }
 
   if (s.step === 1) {
-              s.role = msg;
-              s.step = 2;
-              return `תפקיד: *${s.role}* 💼\n\n*באיזה מיקום?*\nלדוגמה: ישראל, תל אביב, לונדון, ניו יורק, remote...`;
+                s.role = msg;
+                s.step = 2;
+                return `תפקיד: *${s.role}* 💼\n\n*באיזה מיקום?*\nלדוגמה:\n• ישראל / תל אביב\n• ניו יורק / לונדון / ברלין\n• remote (מכל מקום)`;
   }
 
   if (s.step === 2) {
-              s.location = msg;
-              s.step = 3;
+                s.location = msg;
+                s.step = 3;
 
-            const jobs = await searchAllSources(s.role, s.location);
+              const { jobs, links } = await searchJobs(s.role, s.location);
 
-            if (jobs.length === 0) {
-                          s.step = 1;
-                          return `לא מצאתי תוצאות ל"${s.role}" ✏️\n\nנסה תפקיד באנגלית (לדוגמה: developer, designer, manager)\nמה תפקיד אחר שמעניין אותך?`;
-            }
+              let reply = `🔍 *חיפוש: "${s.role}" ב-${s.location}*\n\n`;
 
-            let reply = `🎯 *מצאתי ${jobs.length} משרות ל"${s.role}"!*\n\n`;
-              jobs.slice(0, 5).forEach((j, i) => {
-                            reply += `*${i + 1}. ${j.title}*\n`;
-                            reply += `🏢 ${j.company}\n`;
-                            reply += `📍 ${j.location}${j.remote ? " 🌐 Remote" : ""}\n`;
-                            if (j.salary) reply += `💰 ${j.salary}\n`;
-                            reply += `[${j.source}] ${j.url}\n\n`;
-              });
-              reply += `\nכתוב *חיפוש חדש* לחפש שוב 🔄`;
-              return reply;
+              if (jobs.length > 0) {
+                              reply += `✅ *${jobs.length} משרות נמצאו:*\n\n`;
+                              jobs.slice(0, 4).forEach((j, i) => {
+                                                reply += `*${i + 1}. ${j.title}*\n`;
+                                                reply += `🏢 ${j.company} | 📍 ${j.location}\n`;
+                                                if (j.salary) reply += `💰 ${j.salary}/חודש\n`;
+                                                reply += `🔗 ${j.url}\n\n`;
+                              });
+              } else {
+                              reply += `📋 *חפש ישירות באתרים:*\n\n`;
+              }
+
+              reply += `━━━━━━━━━━━━━━━\n`;
+                reply += `🔎 *חפש עוד משרות:*\n`;
+                links.forEach(l => reply += `${l}\n`);
+                reply += `\n\nכתוב *חיפוש חדש* לחפש שוב 🔄`;
+
+              return reply.slice(0, 1580);
   }
 
-  if (msg.includes("חיפוש") || msg.includes("חדש") || msg.includes("עוד") || msg.includes("שוב")) {
-              s.step = 1;
-              return "בשמחה! 😊 *מה התפקיד שאתה מחפש הפעם?*";
-  }
-
-  const reply = await askGroq([
-          { role: "system", content: "אתה ג'ובי, בוט חיפוש עבודה. ענה קצר ובעברית. כדי לחפש משרות כתוב 'חיפוש חדש'." },
-          { role: "user", content: msg }
-            ]);
-          return reply;
+  // Free chat with Groq
+  const answer = await askGroq(
+                "אתה ג'ובי, בוט חיפוש עבודה. ענה קצר ובעברית. להתחיל חיפוש חדש: כתוב 'חיפוש חדש'.",
+                msg
+              );
+            return answer || "כתוב *חיפוש חדש* כדי לחפש משרות 🔄";
 }
 
 // ── ROUTES ─────────────────────────────────────────────────
-app.get("/", (req, res) => res.send("Jovi Bot v3 🚀 LIVE - Multi-source job search!"));
+app.get("/", (req, res) => res.send("Jovi v4 🚀 - Global Job Search - LIVE!"));
 
 app.post("/whatsapp", async (req, res) => {
-          const { From, Body } = req.body;
-          console.log(`[${new Date().toISOString()}] FROM: ${From} MSG: ${Body}`);
-          try {
-                      const reply = await handleMessage(From, Body || "שלום");
-                      const twiml = new twilio.twiml.MessagingResponse();
-                      twiml.message(reply.slice(0, 1580));
-                      res.type("text/xml").send(twiml.toString());
-          } catch (err) {
-                      console.error("Handler error:", err);
-                      const twiml = new twilio.twiml.MessagingResponse();
-                      twiml.message("שגיאה זמנית 😅 נסה שוב.");
-                      res.type("text/xml").send(twiml.toString());
-          }
+            const { From, Body } = req.body;
+            console.log(`[MSG] ${new Date().toISOString()} | ${From} | ${Body}`);
+            try {
+                          const reply = await handleMessage(From, Body || "שלום");
+                          const twiml = new twilio.twiml.MessagingResponse();
+                          twiml.message(reply);
+                          res.type("text/xml").send(twiml.toString());
+            } catch (err) {
+                          console.error("Error:", err);
+                          const twiml = new twilio.twiml.MessagingResponse();
+                          twiml.message("שגיאה זמנית 😅 נסה שוב עוד רגע.");
+                          res.type("text/xml").send(twiml.toString());
+            }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Jovi v3 running on port ${PORT} 🚀`));
+app.listen(PORT, () => console.log(`Jovi v4 running on port ${PORT} 🚀`));
