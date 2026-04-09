@@ -49,8 +49,8 @@ async function searchJobs(role, location) {
 
 function detectCountry(loc) {
   const l = loc.toLowerCase();
-  if (/new york|san francisco|chicago|seattle|boston|los angeles|\busa\b/.test(l)) return "us";
-  if (/london|uk|england/.test(l)) return "gb";
+  if (/new york|san francisco|chicago|seattle|usa|boston/.test(l)) return "us";
+  if (/london|england/.test(l)) return "gb";
   if (/berlin|munich|germany/.test(l)) return "de";
   if (/paris|france/.test(l)) return "fr";
   if (/toronto|canada/.test(l)) return "ca";
@@ -59,54 +59,29 @@ function detectCountry(loc) {
   return "us";
 }
 
-const MSG = {
-  welcome: "שלום! אני ג'ובי בוט חיפוש עבודה 🤖
-מחפש משרות בישראל ובכל העולם!
-
-*מה התפקיד שאתה מחפש?*
-(עברית או אנגלית)",
-  askLocation: "תפקיד: *{role}* 💼
-
-*באיזה מיקום?*
-לדוגמא:
-• ישראל / תל אביב
-• לונדון / ניו יורק / ברלין
-• remote",
-  noResults: "לא מצאתי תוצאות ל"{role}" ב{location} 😕
-
-💡 נסה באנגלית: developer, designer, analyst
-
-מה תפקיד אחר מעניין?",
-  results: "✅ *מצאתי {count} משרות ל"{role}" ב{location}!*
-
-",
-  footer: "
-כתוב *חיפוש חדש* לחפש שוב 🔄",
-  reset: "בשמחה! 😊
-
-*מה התפקיד שאתה מחפש?*"
-};
-
 async function handleMessage(userId, rawMsg) {
   if (!sessions[userId]) sessions[userId] = { step: 0 };
   const s = sessions[userId];
   const msg = rawMsg.trim();
 
-  if (/^(חיפוש חדש|חדש|שוב|new search|reset|restart)$/i.test(msg)) {
+  const isReset = msg === "new search" || msg === "reset" ||
+    msg === "\u05d7\u05d9\u05e4\u05d5\u05e9 \u05d7\u05d3\u05e9" ||
+    msg === "\u05d7\u05d3\u05e9" || msg === "\u05e9\u05d5\u05d1";
+  if (isReset && s.step > 1) {
     s.step = 1;
-    return MSG.reset;
+    return "\u05d1\u05e9\u05de\u05d7\u05d4! \u{1F60A}\n\n\u05de\u05d4 \u05d4\u05ea\u05e4\u05e7\u05d9\u05d3 \u05e9\u05d0\u05ea\u05d4 \u05de\u05d7\u05e4\u05e9?";
   }
 
   if (s.step === 0) {
     s.step = 1;
-    return MSG.welcome;
+    return "\u05e9\u05dc\u05d5\u05dd! \u05d0\u05e0\u05d9 \u05d2'\u05d5\u05d1\u05d9 \u{1F916}\n\u05de\u05d7\u05e4\u05e9 \u05de\u05e9\u05e8\u05d5\u05ea \u05d1\u05d9\u05e9\u05e8\u05d0\u05dc \u05d5\u05d1\u05db\u05dc \u05d4\u05e2\u05d5\u05dc\u05dd!\n\n\u05de\u05d4 \u05d4\u05ea\u05e4\u05e7\u05d9\u05d3 \u05e9\u05d0\u05ea\u05d4 \u05de\u05d7\u05e4\u05e9? \u{1F4BC}\n(\u05e2\u05d1\u05e8\u05d9\u05ea \u05d0\u05d5 \u05d0\u05e0\u05d2\u05dc\u05d9\u05ea)";
   }
 
   if (s.step === 1) {
     s.originalRole = msg;
     s.role = msg;
     s.step = 2;
-    return MSG.askLocation.replace("{role}", msg);
+    return "\u05ea\u05e4\u05e7\u05d9\u05d3: " + msg + " \u{1F4BC}\n\n\u05d1\u05d0\u05d9\u05d6\u05d4 \u05de\u05d9\u05e7\u05d5\u05dd?\n\u05d9\u05e9\u05e8\u05d0\u05dc / \u05ea\u05dc \u05d0\u05d1\u05d9\u05d1 / London / New York / remote";
   }
 
   if (s.step === 2) {
@@ -116,27 +91,27 @@ async function handleMessage(userId, rawMsg) {
 
     if (jobs.length === 0) {
       s.step = 1;
-      return MSG.noResults.replace("{role}", s.originalRole).replace("{location}", s.location);
+      return "\u05dc\u05d0 \u05de\u05e6\u05d0\u05ea\u05d9 \u05ea\u05d5\u05e6\u05d0\u05d5\u05ea \u05dc-\"" + s.originalRole + "\" \u05d1-" + s.location + " \u{1F615}\n\n\u05d8\u05d9\u05e4: \u05e0\u05e1\u05d4 \u05d1\u05d0\u05e0\u05d2\u05dc\u05d9\u05ea (developer, designer, analyst)\n\n\u05de\u05d4 \u05ea\u05e4\u05e7\u05d9\u05d3 \u05d0\u05d7\u05e8?";
     }
 
-    let reply = MSG.results.replace("{count}", jobs.length).replace("{role}", s.originalRole).replace("{location}", s.location);
+    let reply = "\u2705 \u05de\u05e6\u05d0\u05ea\u05d9 " + jobs.length + " \u05de\u05e9\u05e8\u05d5\u05ea \u05dc-\"" + s.originalRole + "\" \u05d1-" + s.location + "!\n\n";
     jobs.forEach((j, i) => {
-      reply += "*" + (i + 1) + ". " + j.title + "*\n";
-      reply += "🏢 " + j.company + " | 📍 " + j.location;
-      if (j.remote) reply += " 🌐 Remote";
+      reply += (i + 1) + ". " + j.title + "\n";
+      reply += "   \u{1F3E2} " + j.company + " | \u{1F4CD} " + j.location;
+      if (j.remote) reply += " (Remote)";
       reply += "\n";
-      if (j.salary) reply += "💰 " + j.salary + "\n";
-      reply += "🔗 " + j.url + "\n\n";
+      if (j.salary) reply += "   \u{1F4B0} " + j.salary + "\n";
+      reply += "   \u{1F517} " + j.url + "\n\n";
     });
-    reply += MSG.footer;
+    reply += "\u05db\u05ea\u05d5\u05d1 '\u05d7\u05d9\u05e4\u05d5\u05e9 \u05d7\u05d3\u05e9' \u05dc\u05d7\u05e4\u05e9 \u05e9\u05d5\u05d1 \u{1F504}";
     return reply.slice(0, 1580);
   }
 
-  const ans = await askGroq("אתה ג'ובי, בוט עזרה בחיפוש עבודה. ענה קצר ובעברית. לחיפוש כתוב 'חיפוש חדש'.", msg);
-  return ans || "כתוב *חיפוש חדש* כדי לחפש משרות 🔄";
+  const ans = await askGroq("\u05d0\u05ea\u05d4 \u05d2'\u05d5\u05d1\u05d9, \u05d1\u05d5\u05d8 \u05d7\u05d9\u05e4\u05d5\u05e9 \u05e2\u05d1\u05d5\u05d3\u05d4. \u05e2\u05e0\u05d4 \u05e7\u05e6\u05e8 \u05d5\u05d1\u05e2\u05d1\u05e8\u05d9\u05ea.", msg);
+  return ans || "\u05db\u05ea\u05d5\u05d1 '\u05d7\u05d9\u05e4\u05d5\u05e9 \u05d7\u05d3\u05e9' \u05dc\u05d7\u05e4\u05e9 \u05de\u05e9\u05e8\u05d5\u05ea \u{1F504}";
 }
 
-app.get("/", (req, res) => res.send("Jovi v6 - Hebrew - JSearch LIVE!"));
+app.get("/", (req, res) => res.send("Jovi v7 Hebrew JSearch LIVE!"));
 
 app.post("/whatsapp", async (req, res) => {
   const { From, Body } = req.body;
@@ -149,10 +124,10 @@ app.post("/whatsapp", async (req, res) => {
   } catch (err) {
     console.error("Error:", err);
     const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("שגיאה זמנית, נסה שוב.");
+    twiml.message("\u05e9\u05d2\u05d9\u05d0\u05d4, \u05e0\u05e1\u05d4 \u05e9\u05d5\u05d1.");
     res.type("text/xml").send(twiml.toString());
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Jovi v6 Hebrew running on port " + PORT));
+app.listen(PORT, () => console.log("Jovi v7 Hebrew running on port " + PORT));
