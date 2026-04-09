@@ -49,7 +49,7 @@ async function searchJobs(role, location) {
 
 function detectCountry(loc) {
   const l = loc.toLowerCase();
-  if (/new york|san francisco|chicago|seattle|boston|los angeles|\bus\b|\busa\b/.test(l)) return "us";
+  if (/new york|san francisco|chicago|seattle|boston|los angeles|\busa\b/.test(l)) return "us";
   if (/london|uk|england/.test(l)) return "gb";
   if (/berlin|munich|germany/.test(l)) return "de";
   if (/paris|france/.test(l)) return "fr";
@@ -59,26 +59,54 @@ function detectCountry(loc) {
   return "us";
 }
 
+const MSG = {
+  welcome: "שלום! אני ג'ובי בוט חיפוש עבודה 🤖
+מחפש משרות בישראל ובכל העולם!
+
+*מה התפקיד שאתה מחפש?*
+(עברית או אנגלית)",
+  askLocation: "תפקיד: *{role}* 💼
+
+*באיזה מיקום?*
+לדוגמא:
+• ישראל / תל אביב
+• לונדון / ניו יורק / ברלין
+• remote",
+  noResults: "לא מצאתי תוצאות ל"{role}" ב{location} 😕
+
+💡 נסה באנגלית: developer, designer, analyst
+
+מה תפקיד אחר מעניין?",
+  results: "✅ *מצאתי {count} משרות ל"{role}" ב{location}!*
+
+",
+  footer: "
+כתוב *חיפוש חדש* לחפש שוב 🔄",
+  reset: "בשמחה! 😊
+
+*מה התפקיד שאתה מחפש?*"
+};
+
 async function handleMessage(userId, rawMsg) {
   if (!sessions[userId]) sessions[userId] = { step: 0 };
   const s = sessions[userId];
   const msg = rawMsg.trim();
 
-  if (/^(new search|start over|reset|restart|search again)$/i.test(msg)) {
+  if (/^(חיפוש חדש|חדש|שוב|new search|reset|restart)$/i.test(msg)) {
     s.step = 1;
-    return "What job title are you looking for?";
+    return MSG.reset;
   }
 
   if (s.step === 0) {
     s.step = 1;
-    return "Shalom! I am Jovi your job search assistant. I find real jobs in Israel and worldwide! What job title are you looking for? (Hebrew or English)";
+    return MSG.welcome;
   }
 
   if (s.step === 1) {
     s.originalRole = msg;
     s.role = msg;
     s.step = 2;
-    return "Looking for: " + msg + "\n\nWhat location? (Israel / Tel Aviv / New York / London / remote)";
+    return MSG.askLocation.replace("{role}", msg);
   }
 
   if (s.step === 2) {
@@ -88,27 +116,27 @@ async function handleMessage(userId, rawMsg) {
 
     if (jobs.length === 0) {
       s.step = 1;
-      return "No results for " + s.originalRole + " in " + s.location + ". Try in English (developer, designer, analyst). What other title?";
+      return MSG.noResults.replace("{role}", s.originalRole).replace("{location}", s.location);
     }
 
-    let reply = "Found " + jobs.length + " jobs for " + s.originalRole + " in " + s.location + "!\n\n";
+    let reply = MSG.results.replace("{count}", jobs.length).replace("{role}", s.originalRole).replace("{location}", s.location);
     jobs.forEach((j, i) => {
-      reply += (i + 1) + ". " + j.title + "\n";
-      reply += "   " + j.company + " | " + j.location;
-      if (j.remote) reply += " (Remote)";
+      reply += "*" + (i + 1) + ". " + j.title + "*\n";
+      reply += "🏢 " + j.company + " | 📍 " + j.location;
+      if (j.remote) reply += " 🌐 Remote";
       reply += "\n";
-      if (j.salary) reply += "   " + j.salary + "\n";
-      reply += "   " + j.url + "\n\n";
+      if (j.salary) reply += "💰 " + j.salary + "\n";
+      reply += "🔗 " + j.url + "\n\n";
     });
-    reply += "Type 'new search' to search again";
+    reply += MSG.footer;
     return reply.slice(0, 1580);
   }
 
-  const ans = await askGroq("You are Jovi a job search bot. Answer briefly. To search jobs say 'new search'.", msg);
-  return ans || "Type 'new search' to search for jobs";
+  const ans = await askGroq("אתה ג'ובי, בוט עזרה בחיפוש עבודה. ענה קצר ובעברית. לחיפוש כתוב 'חיפוש חדש'.", msg);
+  return ans || "כתוב *חיפוש חדש* כדי לחפש משרות 🔄";
 }
 
-app.get("/", (req, res) => res.send("Jovi v5 Production - JSearch LIVE!"));
+app.get("/", (req, res) => res.send("Jovi v6 - Hebrew - JSearch LIVE!"));
 
 app.post("/whatsapp", async (req, res) => {
   const { From, Body } = req.body;
@@ -121,10 +149,10 @@ app.post("/whatsapp", async (req, res) => {
   } catch (err) {
     console.error("Error:", err);
     const twiml = new twilio.twiml.MessagingResponse();
-    twiml.message("Temporary error. Please try again.");
+    twiml.message("שגיאה זמנית, נסה שוב.");
     res.type("text/xml").send(twiml.toString());
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Jovi v5 running on port " + PORT));
+app.listen(PORT, () => console.log("Jovi v6 Hebrew running on port " + PORT));
